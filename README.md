@@ -2,7 +2,7 @@
 SWE40006 team project: employee onboarding/offboarding with a three-tier web application and demonstrated DevOps pipeline.
 
 ## Current scope
-ELA-7 bootstrap: React/Vite frontend, Express API, PostgreSQL local configuration, lint/build scripts and health/readiness tests. Employee schema, authentication, workflows, image packaging and AWS delivery are later tickets.
+ELA-7 bootstrap plus ELA-8/9 foundations: React/Vite frontend, Express API, local PostgreSQL configuration, migrations, synthetic seeds, session login and role-scoped read endpoints. Workflow generation/completion, full employee management, image packaging and AWS delivery are later tickets.
 
 ## Architecture
 React browser UI → Express REST API → PostgreSQL. Frontend does not connect directly to the database.
@@ -26,7 +26,7 @@ Git, Node.js 24.x with npm, and Docker Desktop (Compose v2). Use .nvmrc if your 
 `npm test`
 `npm run build`
 
-The tests check health/readiness behaviour with a simulated database. They do not verify a real PostgreSQL connection. Capture a successful /ready response and browser screenshot with your running local database before closing ELA-7.
+The original health/readiness tests simulate database success/failure; additional foundations tests exercise an embedded PostgreSQL engine. Neither replaces verification of the real node-postgres connection to Docker PostgreSQL. Capture a successful /ready response and browser screenshot with your running local database before closing ELA-7.
 
 ## Stop and troubleshoot
 Ctrl+C stops development servers. `docker compose --env-file deployment/.env -f deployment/compose.yaml down` stops PostgreSQL while retaining its volume.
@@ -38,4 +38,19 @@ Vite's development proxy forwards /health, /ready and /api to port 3000. Product
 Use branches such as feature/ELA-8-database, commits containing the Jira key, and reviewed pull requests.
 Keep captioned screenshots, raw console output, errors/fixes/retests and contributor references for every performed subtask. Store sensitive evidence privately and redact credentials.
 Jira: https://shape-up.atlassian.net/browse/ELA-7
+
+## Database and login foundations (ELA-8 / ELA-9)
+
+After installing updated dependencies with `npm ci` and starting the existing PostgreSQL container:
+
+1. Add `APP_ORIGIN=http://localhost:5173` to backend/.env if missing. Open exactly this frontend origin; if Vite chooses another port, update APP_ORIGIN and restart the API.
+2. Add `SEED_PASSWORD=` followed by your own local-only demo-login password of 12–128 characters to backend/.env. This differs from PGPASSWORD, which authenticates the API to PostgreSQL. Do not commit or share either password.
+3. Run `npm run db:migrate` then `npm run db:seed`. Rerunning both is safe; seed reruns preserve existing user passwords. Changing SEED_PASSWORD after the first seed does not reset existing accounts.
+4. Restart the backend and frontend using the existing dev commands. Sign in as `hr@example.test`, `it@example.test` or `manager@example.test` with the password chosen in step 2.
+5. Verify HR sees Sample Employee; Manager sees only their assigned employee; IT sees only their assigned tasks. Logout and refresh must show the login form. Templates exist but generated workflow tasks are implemented later.
+6. Run lint, tests and build. Capture migration/seed outputs, masked login screens, role views and verification results. Do not capture passwords or cookies.
+
+Database tables/constraints and recovery notes: database/ARCHITECTURE.md. Permission matrix, session/CSRF behaviour and the unimplemented MFA boundary: backend/AUTHENTICATION.md.
+
+Automated foundations tests use PGlite's embedded PostgreSQL engine, exercising SQL constraints, migration/seed reruns, transaction rollback, persisted data after restart, login/permissions/CSRF and session expiry. They do not replace deployed node-postgres concurrency tests or browser acceptance tests required for Level 3. Verify migration/readiness/login against your Docker PostgreSQL 17 instance before closing these tickets.
 
