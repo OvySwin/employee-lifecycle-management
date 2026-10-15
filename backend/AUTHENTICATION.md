@@ -6,7 +6,7 @@
 | Manager | Employees with manager_user_id matching signed-in user | Explicitly assigned Manager tasks only | Assigned task completion within authorised scope |
 | IT | No employee-list endpoint | Explicitly assigned IT tasks only | Assigned IT task completion |
 
-Current API routes: POST /api/auth/login, GET /api/auth/me, POST /api/auth/logout, GET /api/employees and GET /api/tasks. Read endpoints return at most 100 records; pagination and complete employee/workflow routes remain future tickets. HTTP 401 means no valid enabled-user session; 403 means permission, origin or CSRF rejection. No public registration.
+Authentication routes: POST /api/auth/login, GET /api/auth/me and POST /api/auth/logout. Employee routes now support HR create/edit, manager-scoped detail reads and pagination; see EMPLOYEE_API.md for the complete contract. GET /api/tasks still returns at most 100 authorised tasks; workflow write routes remain later tickets. HTTP 401 means no valid enabled-user session; 403 means permission, origin or CSRF rejection. No public registration.
 
 Passwords use Node scrypt with random 16-byte salts (N=32768,r=8,p=1). Login failures use generic responses and a dummy password hash for unknown emails. Login rate limiting permits 20 attempts per IP per 15 minutes in this single-instance implementation; distributed deployments require a shared limiter store and reviewed trusted-proxy settings.
 

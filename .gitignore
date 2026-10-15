@@ -150,3 +150,7 @@ vite.config.ts.timestamp-*
 
 # Local evidence and exports
 evidence/private/
+
+# Browser-test reports and traces
+playwright-report/
+test-results/

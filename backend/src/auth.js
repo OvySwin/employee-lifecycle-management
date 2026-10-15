@@ -2,6 +2,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { hashPassword, verifyPassword } from './passwords.js';
+import { employeeRoutes } from './employees.js';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const dummyPassword = hashPassword(randomBytes(32).toString('hex'));
 export function authRoutes(database, { origin = 'http://localhost:5173', secure = false, sessionHours = 8, limiter = true } = {}) {
@@ -54,12 +55,7 @@ export function authRoutes(database, { origin = 'http://localhost:5173', secure 
     res.clearCookie(cookieName,{ httpOnly:true,secure,sameSite:'strict',path:'/' });
     res.sendStatus(204);
   });
-  // Foundations-only read endpoints: creation/editing and workflow APIs remain ELA-10 onward.
-  router.get('/employees', async (req,res) => {
-    const query = req.user.role === 'HR' ? ['SELECT id,employee_number,full_name,lifecycle_status FROM employees ORDER BY employee_number LIMIT 100',[]] : req.user.role === 'Manager' ? ['SELECT id,employee_number,full_name,lifecycle_status FROM employees WHERE manager_user_id=$1 ORDER BY employee_number LIMIT 100',[req.user.id]] : null;
-    if (!query) return res.status(403).json({ error: 'Permission denied' });
-    res.json({ employees: (await database.query(...query)).rows });
-  });
+  router.use(employeeRoutes(database));
   router.get('/tasks', async (req,res) => {
     const query = req.user.role === 'HR' ? ['SELECT id,title,status FROM workflow_tasks ORDER BY id LIMIT 100',[]] : ['SELECT id,title,status FROM workflow_tasks WHERE assignee_user_id=$1 AND assigned_role=$2 ORDER BY id LIMIT 100',[req.user.id,req.user.role]];
     res.json({ tasks: (await database.query(...query)).rows });
