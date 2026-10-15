@@ -4,10 +4,13 @@
   "type": "module",
   "scripts": {
     "dev": "node --env-file=.env --watch src/server.js",
-    "start": "node src/server.js"
+    "start": "node src/server.js",
+    "db:migrate": "node --env-file=.env src/db-cli.js migrate",
+    "db:seed": "node --env-file=.env src/db-cli.js seed"
   },
   "dependencies": {
     "express": "^5.0.0",
+    "express-rate-limit": "8.7.1",
     "pg": "^8.0.0"
   }
 }
