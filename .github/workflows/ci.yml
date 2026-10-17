@@ -1,0 +1,105 @@
+name: ELM CI
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: elm-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_DB: elm_ci
+          POSTGRES_USER: elm_ci
+          POSTGRES_PASSWORD: ci-disposable-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U elm_ci -d elm_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      RUN_POSTGRES_TESTS: '1'
+      PGHOST: 127.0.0.1
+      PGPORT: '5432'
+      PGDATABASE: elm_ci
+      PGUSER: elm_ci
+      PGPASSWORD: ci-disposable-only
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24.14.1
+          cache: npm
+      - name: Record start
+        run: echo "ELM_CI_START=$(date +%s)" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:coverage -- --maxWorkers=1
+      - run: npm run build
+      - name: Install browser
+        run: npx playwright install --with-deps chromium
+      - name: Browser acceptance tests
+        run: npm run test:e2e
+      - name: Build application images
+        run: |
+          docker build -f backend/Dockerfile -t elm-api:${{ github.sha }} .
+          docker build -f frontend/Dockerfile -t elm-web:${{ github.sha }} .
+      - name: Configure disposable container stack
+        run: |
+          cat > deployment/app.env <<CONFIG
+          DEPLOY_ENV=ci
+          NODE_ENV=development
+          APP_ORIGIN=http://localhost:8080
+          WEB_PORT=8080
+          POSTGRES_DB=elm_container_ci
+          POSTGRES_USER=elm_container_ci
+          POSTGRES_PASSWORD=ci-disposable-only
+          API_IMAGE=elm-api:${{ github.sha }}
+          WEB_IMAGE=elm-web:${{ github.sha }}
+          CONFIG
+          echo POSTGRES_USER=elm_container_ci >> "$GITHUB_ENV"
+          echo POSTGRES_DB=elm_container_ci >> "$GITHUB_ENV"
+      - name: Verify packaged application
+        run: bash scripts/container-smoke.sh
+      - name: Export tested images and identifiers
+        run: |
+          docker image inspect elm-api:${{ github.sha }} elm-web:${{ github.sha }} --format '{{.RepoTags}} {{.Id}}' > evidence/ci/image-ids.txt
+          docker save elm-api:${{ github.sha }} elm-web:${{ github.sha }} | gzip > evidence/ci/images.tar.gz
+          sha256sum evidence/ci/images.tar.gz > evidence/ci/images.sha256
+          echo '${{ github.sha }}' > evidence/ci/source-commit.txt
+      - name: Record duration
+        if: always()
+        run: |
+          mkdir -p evidence/ci
+          echo "CI duration: $(($(date +%s)-ELM_CI_START)) seconds; target <=300 seconds" | tee evidence/ci/duration.txt
+      - name: Collect container diagnostics
+        if: always()
+        run: |
+          if test -f deployment/app.env; then
+            docker compose --env-file deployment/app.env -f deployment/compose.app.yaml ps -a > evidence/ci/compose-status.txt
+            docker compose --env-file deployment/app.env -f deployment/compose.app.yaml logs --no-color > evidence/ci/compose.log
+          fi
+      - name: Retain reports and tested images
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: elm-ci-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            coverage/
+            playwright-report/
+            test-results/
+            evidence/ci/
+          retention-days: 7
+      - name: Remove disposable stack
+        if: always()
+        run: |
+          if test -f deployment/app.env; then
+            docker compose --env-file deployment/app.env -f deployment/compose.app.yaml down -v
+          fi
