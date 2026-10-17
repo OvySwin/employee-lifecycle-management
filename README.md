@@ -2,7 +2,7 @@
 SWE40006 team project: employee onboarding/offboarding with a three-tier web application and demonstrated DevOps pipeline.
 
 ## Current scope
-ELA-7 bootstrap plus ELA-8/9 foundations: React/Vite frontend, Express API, local PostgreSQL configuration, migrations, synthetic seeds, session login and role-scoped read endpoints. Workflow generation/completion, full employee management, image packaging and AWS delivery are later tickets.
+ELA-7 bootstrap, ELA-8/9 foundations and ELA-2 employee management: React/Vite frontend, Express API, local PostgreSQL, migrations/seeds, session login, HR employee create/edit, paginated lists and scoped detail views. Workflow generation/completion, image packaging and AWS delivery remain later tickets.
 
 ## Architecture
 React browser UI → Express REST API → PostgreSQL. Frontend does not connect directly to the database.
@@ -53,4 +53,10 @@ After installing updated dependencies with `npm ci` and starting the existing Po
 Database tables/constraints and recovery notes: database/ARCHITECTURE.md. Permission matrix, session/CSRF behaviour and the unimplemented MFA boundary: backend/AUTHENTICATION.md.
 
 Automated foundations tests use PGlite's embedded PostgreSQL engine, exercising SQL constraints, migration/seed reruns, transaction rollback, persisted data after restart, login/permissions/CSRF and session expiry. They do not replace deployed node-postgres concurrency tests or browser acceptance tests required for Level 3. Verify migration/readiness/login against your Docker PostgreSQL 17 instance before closing these tickets.
+
+## Employee management (ELA-2)
+
+HR can choose Add employee, fill the form and save. New records start in Onboarding. Open View/Edit to change employee details; refresh to verify persistence. Employee number stays fixed; lifecycle status changes only through future workflow actions. Managers can read only their assigned employees; IT retains its task-only view. See backend/EMPLOYEE_API.md for fields, API contracts and manual verification.
+
+Run `npx playwright install chromium` once, then `npm run test:e2e` for isolated browser create/edit, validation, pagination, permission, error and keyboard tests. These use synthetic embedded PostgreSQL data on ports 3101/5175 and do not touch your Docker data. Browser reports/test outputs are gitignored. Development Vite now fails clearly if its selected port is occupied, rather than silently choosing a different Origin and breaking login.
 
