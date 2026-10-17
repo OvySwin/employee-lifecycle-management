@@ -25,7 +25,11 @@ test('HR creates, edits, refreshes and logs back into persisted data',async({pag
   await page.reload();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
   await page.getByRole('link',{name:'Edit employee',exact:true}).click();
   await page.getByLabel('Job title',{exact:true}).fill('Senior Test Analyst');
+  const savedResponse=page.waitForResponse(response=>response.request().method()==='PATCH' && new URL(response.url()).pathname.startsWith('/api/employees/'));
   await page.getByRole('button',{name:'Save employee',exact:true}).click();
+  expect((await savedResponse).status()).toBe(200);
+  await expect(page.getByRole('link',{name:'Edit employee',exact:true})).toBeVisible();
+  await expect(page.locator('dd').filter({hasText:/^Senior Test Analyst$/})).toBeVisible();
   await page.reload();await expect(page.locator('dd').filter({hasText:/^Senior Test Analyst$/})).toBeVisible();
   await page.screenshot({path:test.info().outputPath('deployed-employee.png'),fullPage:true});
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
