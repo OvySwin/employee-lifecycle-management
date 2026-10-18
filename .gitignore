@@ -154,3 +154,7 @@ evidence/private/
 # Browser-test reports and traces
 playwright-report/
 test-results/
+
+# Private container runtime configuration
+deployment/app.env
+evidence/ci/
