@@ -1,18 +1,63 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { EmployeeWorkspace } from './EmployeeWorkspace.jsx';
 import './style.css';
 function App() {
-  const [status, setStatus] = useState('Checking connection…');
+  const [user,setUser] = useState(null), [csrf,setCsrf] = useState('');
+  const [email,setEmail] = useState(''), [password,setPassword] = useState('');
+  const [message,setMessage] = useState(''), [busy,setBusy] = useState(true);
+  const [tasks,setTasks] = useState([]);
+  const [ready,setReady] = useState('Checking connection…');
+  const expired=useCallback(()=>{setUser(null);setCsrf('');setTasks([]);setMessage('Session expired. Please log in again.');},[]);
+  async function loadData() {
+    const response=await fetch('/api/tasks');
+    if(response.status===401){expired();throw new Error('Session expired. Please log in again.');}
+    if(!response.ok)throw new Error('Unable to load authorised tasks.');
+    setTasks((await response.json()).tasks || []);
+  }
   useEffect(() => {
-    const controller = new AbortController();
-    fetch('/ready', { signal: controller.signal }).then(async response => {
-      if (!response.ok) throw new Error('Not ready');
-      await response.json();
-      setStatus('API and database connected');
-    }).catch(error => { if (error.name !== 'AbortError') setStatus('API or database unavailable. Check the local setup.'); });
-    return () => controller.abort();
+    let cancelled = false;
+    async function restore() {
+      try {
+        const response = await fetch('/api/auth/me');
+        if (response.ok) {
+          const data = await response.json();
+          if (!cancelled) { setUser(data.user); setCsrf(data.csrfToken); await loadData(); }
+        } else if (response.status !== 401) throw new Error('Login service unavailable.');
+      } catch (error) { if (!cancelled) setMessage(error.message); }
+      finally { if (!cancelled) setBusy(false); }
+    }
+    restore();
+    fetch('/ready').then(response => { if (!response.ok) throw new Error(); return response.json(); }).then(() => { if (!cancelled) setReady('API and database connected'); }).catch(() => { if (!cancelled) setReady('API or database unavailable. Check local setup.'); });
+    return () => { cancelled = true; };
   }, []);
-  return <main><p>SWE40006 · Development</p><h1>Employee Lifecycle Management</h1><p>Onboarding and offboarding workflows will be implemented here.</p><p role="status">{status}</p></main>;
+  async function login(event) {
+    event.preventDefault(); setBusy(true); setMessage('');
+    try {
+      const response = await fetch('/api/auth/login',{ method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password}) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Login failed');
+      window.location.hash='/employees';
+      setUser(data.user); setCsrf(data.csrfToken); setPassword(''); await loadData();
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+  async function logout() {
+    setBusy(true); setMessage('');
+    try {
+      const response = await fetch('/api/auth/logout',{method:'POST',headers:{'X-CSRF-Token':csrf}});
+      if (!response.ok && response.status !== 401) throw new Error('Logout failed. Please try again.');
+      setUser(null); setCsrf(''); setTasks([]); setPassword('');window.location.hash='/employees';
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+  return <main><p>SWE40006 · Development</p><h1>Employee Lifecycle Management</h1><p role="status">{ready}</p>
+    {message && <p role="alert">{message}</p>}
+    {!user ? <form onSubmit={login}><h2>Sign in</h2><label htmlFor="email">Email</label><input id="email" type="email" autoComplete="username" required value={email} onChange={event=>setEmail(event.target.value)}/><label htmlFor="password">Password</label><input id="password" type="password" autoComplete="current-password" required maxLength={128} value={password} onChange={event=>setPassword(event.target.value)}/><button disabled={busy}>{busy ? 'Please wait…':'Sign in'}</button></form> : <section><h2>{user.displayName}</h2><p>Role: {user.role}</p><button disabled={busy} onClick={logout}>Sign out</button>
+      {user.role !== 'IT' && <EmployeeWorkspace user={user} csrf={csrf} onAuthExpired={expired}/>}
+      <h3>{user.role==='HR'?'Tasks':'Your assigned tasks'}</h3>{tasks.length ? <ul>{tasks.map(task=><li key={task.id}>{task.title} — {task.status}</li>)}</ul>:<p>No tasks in your authorised scope.</p>}
+      <p>Onboarding and offboarding workflow actions will be added in the next tickets.</p></section>}
+  </main>;
 }
-createRoot(document.getElementById('root')).render(<App />);
+createRoot(document.getElementById('root')).render(<App/>);
 
