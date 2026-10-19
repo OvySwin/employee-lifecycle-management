@@ -12,6 +12,10 @@ test('deployed health/readiness and unauthenticated access',async({request})=>{
   const ready=await request.get('/ready');
   expect(ready.status()).toBe(200);expect((await ready.json()).database).toBe('connected');
   expect((await request.get('/api/employees')).status()).toBe(401);
+  if(process.env.EXPECTED_RELEASE_SHA){
+    const release=await request.get('/release.json');expect(release.status()).toBe(200);
+    expect((await release.json()).commit).toBe(process.env.EXPECTED_RELEASE_SHA);
+  }
 });
 test('HR creates, edits, refreshes and logs back into persisted data',async({page})=>{
   const number='DEPLOY-'+randomUUID().slice(0,8).toUpperCase(),name='Synthetic '+number;

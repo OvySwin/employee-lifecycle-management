@@ -6,6 +6,8 @@ COPY frontend/package.json frontend/package.json
 RUN npm ci
 COPY frontend frontend
 RUN npm run build --workspace frontend
+ARG RELEASE_SHA=development
+RUN printf '{"commit":"%s"}\n' "$RELEASE_SHA" > frontend/dist/release.json
 
 FROM nginx:1.28.0-alpine AS runtime
 COPY frontend/nginx.conf /etc/nginx/nginx.conf
