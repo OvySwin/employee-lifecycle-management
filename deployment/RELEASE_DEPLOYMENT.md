@@ -1,65 +1,31 @@
-# Deferred deployment without AWS federation
+# GitHub Actions deployment
 
-AWS account restrictions prevent configuring GitHub OIDC. This route uses GitHub-hosted CI and public GitHub Release downloads. No AWS access key, SSH private key, GitHub personal token, or demo password is published or stored in the release. SSM remains available for operations but is not required by this deployment route.
+## Normal release path
 
-## What runs automatically
+A push to main triggers ELM CI: lint, coverage, browser tests, packaged-image verification and release publication. After successful main push CI, ELM Deploy automatically deploys the exact published images to Test, runs deployed browser acceptance tests, and only then deploys to Staging. Staging checks readiness and the live release SHA. Failed required jobs prevent later jobs from running.
 
-Pull requests run verification. Pushes to main run verification and, only on success, publish a draft release, upload all assets, and publish the complete release as ci-<full-commit-SHA>. Failed verification skips publication. Existing release tags are never overwritten. Publishing uses GitHub's short-lived job token with contents:write restricted to the separate publish job, not the test job. Fork and branch PRs do not publish.
+Deployment runs on GitHub-hosted workers using AWS Systems Manager Run Command. No public SSH access from GitHub is required. The IAM deployment user can send shell commands to the three specified ELM instances and read command results. Its long-lived access key is stored in AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY repository secrets; delete or rotate it when project deployment access ends. OIDC is unavailable in this account. Test's existing synthetic-account password stays in the root-readable /etc/elm/test-password file and is not sent as an SSM parameter.
 
-CI now builds a reusable acceptance-test image and runs it against the packaged web/API/PostgreSQL stack before export. The two app images and acceptance image are identified in manifest.json by Docker image ID. All downloaded archives and the exact Compose definition have SHA-256 checksums. The frontend exposes /release.json and displays “Deployment pipeline demo” as a visible source-change demonstration.
+Production is deferred. In Actions, select ELM Deploy, Run workflow, main, the full successful release SHA, and approve_production=true. This is an explicit manual workflow launch, not a separate required-reviewer environment gate. The run validates successful main push CI and a published release, then verifies Test and Staging receipts and their current live readiness/version before deploying Production. Production takes a private database backup and verifies HTTPS readiness and the live SHA. Browser tests run on Test; the Production job does not run them.
 
-## What an operator approves
+## Host configuration and evidence
 
-This is deferred deployment, not fully automatic continuous deployment. An operator starts the deployment script on each server, first Test, then Staging, then Production. The script automatically downloads, verifies and loads the release, changes only API_IMAGE/WEB_IMAGE in the existing private config, starts services/migrations, checks HTTPS/readiness and the live frontend commit, and records a receipt. Test additionally runs the deployed browser acceptance suite. Test and Staging receipts must be reviewed before authorizing Production. Cross-server ordering is an operator gate, not a machine-enforced GitHub environment gate; do not describe it as fully automatic promotion.
+Keep the existing independent deployment/app.env on each host; never overwrite it with examples. Required host tools are Python 3, curl, flock, Docker and Compose. SSM must be connected and permitted by the instance role. Test and Staging web ports remain loopback-only; Production uses its existing Caddy HTTPS proxy.
 
-## One-time preparation per server
+scripts/ssm-deploy.py sends bounded commands and polls their result. It downloads the deployment script at the exact release source SHA into /var/lib/elm-deploy/automation/<SHA>/scripts and uses the host's existing private configuration. No on-host git checkout or image rebuild is required.
 
-Use a clean main checkout in ~/employee-lifecycle-management and pull the merged deployment changes. Keep deployment/app.env with independent environment, origin and database settings. Never replace that private file with an example. Python 3, curl, flock, Docker and Compose must be installed (Amazon Linux 2023 setup). Use the existing configured HTTPS proxy on Production.
+The underlying scripts/deploy-release.sh verifies release identity, archive/Compose SHA-256 checksums, loaded image IDs and environment settings. It updates only API_IMAGE/WEB_IMAGE, applies migrations, starts services and checks readiness/version. Test additionally runs the packaged acceptance image using existing synthetic HR/IT/Manager accounts. Each browser run creates a uniquely numbered synthetic employee.
 
-The deployment script uses sudo. Invoke it from the repository root and specify a full release tag shown on the successful main CI run. No image rebuilding or SCP is involved.
+Private evidence is in /var/lib/elm-deploy/<environment>/<SHA>/: receipt.json, browser reports on Test, and database-before.sql.gz on Production. This directory also contains private configuration backups: do not publish it wholesale. Retain selected redacted reports and console logs for assessment.
 
-### Test
+## Failure handling
 
-Run the password prompt separately to avoid pasted command text being consumed as a password:
+A missing Test password stops deployment before changing containers. Per-host locks prevent overlapping deployment scripts; Actions serializes promotions. Failure after changing app configuration attempts to restore previous images. This is best-effort image rollback, not database-schema rollback. Migrations must be backward compatible. An isolated database restoration rehearsal and controlled failed-health rollback exercise still need separate evidence.
 
-```bash
-read -rs -p 'Existing Test HR password: ' TEST_PASSWORD; echo
-```
+Do not delete database volumes to repair a deployment. Repeating the same SHA can overwrite its prior backup/config evidence, so inspect before retrying a partially completed deployment. Production never runs demo seeds or automatically restores its database. Compose replacement may briefly interrupt requests. DNS/certificates depend on the current Production public IP.
 
-Then:
+## Demonstration
 
-```bash
-export TEST_PASSWORD
-sudo --preserve-env=TEST_PASSWORD bash scripts/deploy-release.sh test ci-REPLACE_WITH_40_CHARACTER_SHA
-unset TEST_PASSWORD
-```
+Show the old form label, then a source change from Job title to Position / job title. Follow the source commit through ELM CI and ELM Deploy Test/Staging. Show the successful Test browser suite and identical release SHA. Launch the approved Production run, then refresh the live application to show the new label. Updating a synthetic employee's title afterwards demonstrates application behaviour and persistence; that database edit itself does not trigger CI.
 
-Existing HR/IT/Manager accounts must share the synthetic Test password as configured earlier. The tests add one uniquely numbered synthetic employee per run. Reports stay private under /var/lib/elm-deploy/test/<SHA>/browser-report and browser-results. The browser binary is already in the downloaded acceptance image; it is not installed afresh on the server.
-
-### Staging
-
-After reviewing Test's successful receipt:
-
-```bash
-sudo bash scripts/deploy-release.sh staging ci-REPLACE_WITH_40_CHARACTER_SHA
-```
-
-### Production
-
-After reviewing Staging readiness/version and manual business-flow evidence:
-
-```bash
-sudo bash scripts/deploy-release.sh production ci-REPLACE_WITH_40_CHARACTER_SHA --approve-production
-```
-
-The script requires NODE_ENV=production and an HTTPS APP_ORIGIN. It saves a private pg_dump before changes. It never seeds accounts, creates demo data in Production, deletes volumes or automatically restores a database.
-
-## Failure handling and limits
-
-A host/environment mismatch, missing Test password, invalid release tag, checksum mismatch or loaded image ID mismatch stops deployment before config changes. The per-host lock prevents concurrent deployments. A failure after config changes triggers a best-effort previous-image restart using a saved private config. This is not a schema rollback: migrations must remain backward compatible, and database restore must be rehearsed separately. Existing active requests can be interrupted during Compose replacement; this is not zero-downtime deployment.
-
-Keep /var/lib/elm-deploy private; it contains database backups and copies of private environment settings. After automated releases begin, use this script for promotions rather than running the old repository Compose file against a newer release definition. Retain successful receipts, browser report and CI logs as evidence, with secrets redacted. Certificates/DNS still depend on the current Production public IP.
-
-## Demonstration and assessment
-
-Show a visible source change, the automatic push-triggered CI run, publication of tested images, then approve and execute the exact release on Test, Staging and Production, ending with the visible change and matching /release.json on the live HTTPS site. This demonstrates automated release preparation and operator-triggered automated deployment. Lecturer interpretation of the end-to-end/deferred-deployment requirement should be confirmed; do not claim all Level 4 acceptance criteria merely because the scripts exist.
+This proves the tested release's delivery path. It does not prove unfinished onboarding/offboarding features, every assessment criterion, or unexecuted recovery tests. Manual SSH execution of scripts/deploy-release.sh remains an operations fallback, not the normal demo path.
