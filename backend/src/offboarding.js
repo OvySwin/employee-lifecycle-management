@@ -65,5 +65,77 @@ export function offboardingRoutes(database) {
       next(error);
     }
   });
+
+  router.patch('/tasks/:id', async (req, res, next) => {
+    if (!uuid.test(req.params.id)) {
+    return res.status(400).json({ error: 'Invalid task ID.' });
+  }
+
+  try {
+    const result = await inTransaction(database, async client => {
+      const taskResult = await client.query(
+        `UPDATE workflow_tasks
+         SET status='Completed',
+             completed_at=now(),
+             completed_by=$1
+         WHERE id=$2
+           AND assignee_user_id=$1
+           AND assigned_role=$3
+           AND status='Pending'
+         RETURNING ${taskFields}`,
+        [req.user.id, req.params.id, req.user.role]
+      );
+
+      if (!taskResult.rows.length) {
+        throw new WorkflowError(404, 'Task not found.');
+      }
+
+      const task = taskResult.rows[0];
+
+      const remaining = await client.query(
+        `SELECT id
+         FROM workflow_tasks
+         WHERE workflow_id=$1
+           AND required=true
+           AND status <> 'Completed'
+         LIMIT 1`,
+        [task.workflow_id]
+      );
+
+      if (!remaining.rows.length) {
+        await client.query(
+          `UPDATE workflows
+           SET status='Completed',
+               completed_at=now()
+           WHERE id=$1`,
+          [task.workflow_id]
+        );
+
+        await client.query(
+          `UPDATE employees
+           SET lifecycle_status='Offboarded'
+           WHERE id=(
+             SELECT employee_id
+             FROM workflows
+             WHERE id=$1
+           )`,
+          [task.workflow_id]
+        );
+      }
+
+      return task;
+    });
+
+    res.json({ task: result });
+  } catch (error) {
+    if (error instanceof WorkflowError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    next(error);
+  }
+});
+
+
+
   return router;
 }
