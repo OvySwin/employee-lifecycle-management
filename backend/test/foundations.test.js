@@ -35,7 +35,20 @@ describe('database foundations (embedded PostgreSQL)',()=>{
     await migrate(db); await seed(db,'Different-local-password');
     expect((await db.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count).toBe(1);
     expect((await db.query('SELECT count(*)::int AS count FROM app_users')).rows[0].count).toBe(3);
-    expect((await db.query('SELECT count(*)::int AS count FROM template_tasks')).rows[0].count).toBe(6);
+    expect((await db.query('SELECT count(*)::int AS count FROM template_tasks')).rows[0].count).toBe(14);
+    expect((await db.query("SELECT title,assigned_role FROM template_tasks t JOIN checklist_templates c ON c.id=t.template_id WHERE c.kind='Onboarding' ORDER BY position")).rows).toEqual([
+      {title:'Track account setup',assigned_role:'IT'},
+      {title:'Track equipment allocation',assigned_role:'IT'},
+      {title:'Complete induction',assigned_role:'HR'},
+      {title:'Send welcome email',assigned_role:'HR'},
+      {title:'Verify work eligibility documents',assigned_role:'HR'},
+      {title:'Schedule orientation',assigned_role:'HR'},
+      {title:'Collect signed policy acknowledgements',assigned_role:'HR'},
+      {title:'Set up workstation and equipment',assigned_role:'IT'},
+      {title:'Provision email and application access',assigned_role:'IT'},
+      {title:'Configure building access',assigned_role:'IT'},
+      {title:'Complete security awareness setup',assigned_role:'IT'}
+    ]);
     expect((await db.query("SELECT password_hash FROM app_users WHERE role='HR'")).rows[0].password_hash).toBe(before);
   });
   it('rejects invalid lifecycle states, dates and foreign keys',async()=>{

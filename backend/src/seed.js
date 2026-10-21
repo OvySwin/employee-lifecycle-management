@@ -12,8 +12,10 @@ export async function seed(client, password) {
     await client.query("INSERT INTO employees(employee_number,full_name,job_title,department,location,start_date,lifecycle_status,manager_user_id) VALUES ('DEMO-001','Sample Employee','Business Analyst','Consulting','Melbourne','2026-10-19','Onboarding',$1) ON CONFLICT(employee_number) DO NOTHING", [manager]);
     for (const kind of ['Onboarding','Offboarding']) {
       const template = (await client.query('INSERT INTO checklist_templates(name,kind,version) VALUES($1,$2,1) ON CONFLICT(name,version) DO UPDATE SET name=EXCLUDED.name RETURNING id', [`Default ${kind}`,kind])).rows[0].id;
-      const tasks = kind === 'Onboarding' ? [['Track account setup','IT'],['Track equipment allocation','IT'],['Complete induction','HR']] : [['Confirm account/access removal','IT'],['Recover equipment','IT'],['Archive employee information','HR']];
-      for (let index=0; index<tasks.length; index++) await client.query('INSERT INTO template_tasks(template_id,title,assigned_role,position) VALUES($1,$2,$3,$4) ON CONFLICT(template_id,position) DO NOTHING', [template,...tasks[index],index]);
+      const tasks = kind === 'Onboarding'
+        ? [['Track account setup','IT',0],['Track equipment allocation','IT',0],['Complete induction','HR',7],['Send welcome email','HR',-5],['Verify work eligibility documents','HR',-2],['Schedule orientation','HR',-2],['Collect signed policy acknowledgements','HR',0],['Set up workstation and equipment','IT',-1],['Provision email and application access','IT',-1],['Configure building access','IT',0],['Complete security awareness setup','IT',1]]
+        : [['Confirm account/access removal','IT',0],['Recover equipment','IT',0],['Archive employee information','HR',0]];
+      for (let index=0; index<tasks.length; index++) await client.query('INSERT INTO template_tasks(template_id,title,assigned_role,due_offset_days,position) VALUES($1,$2,$3,$4,$5) ON CONFLICT(template_id,position) DO NOTHING', [template,...tasks[index],index]);
     }
     await client.query('COMMIT');
   } catch (error) { await client.query('ROLLBACK'); throw error; }

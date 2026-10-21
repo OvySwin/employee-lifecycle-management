@@ -54,7 +54,70 @@ function EmployeeDetail({id,edit,user,csrf,onSaved,onError}) {
   if(state.error)return <div><p role="alert">{state.error}</p><button onClick={()=>setRetry(retry+1)}>Retry employee details</button></div>;
   if(edit)return user.role==='HR' ? <EmployeeForm employee={state.employee} csrf={csrf} onSaved={onSaved} onError={onError}/> : <p role="alert">Only HR can edit employees.</p>;
   const employee=state.employee;
-  return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Position / job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>}<p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
+  return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>} <a className="button" href={`#/onboarding/${employee.id}`}>View onboarding checklist</a><p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
+}
+
+function TaskChecklist({tasks,userRole,csrf,onError,onApproval}) {
+  const [items,setItems]=useState(tasks);
+  const [approving,setApproving]=useState('');
+  const [message,setMessage]=useState('');
+  async function approve(task) {
+    setApproving(task.id);setMessage('');
+    try {
+      const data=await api(`/api/onboarding-tasks/${task.id}/approve`,{method:'POST',csrf});
+      setItems(previous=>previous.map(item=>item.id===task.id?data.task:item));
+      onApproval(data);
+    } catch(error) { onError(error);setMessage(error.message); }
+    finally { setApproving(''); }
+  }
+  return <><ol>{items.map(task=><li key={task.id}>{task.title} — {task.assigned_role}{task.due_date ? ` · Due ${task.due_date}` : ''} · {task.status}{task.required ? ' · Required' : ' · Optional'}{task.status==='Pending' && task.assigned_role===userRole && <button disabled={Boolean(approving)} onClick={()=>approve(task)}>{approving===task.id?'Approving…':'Approve step'}</button>}</li>)}</ol>{message && <p role="alert">{message}</p>}</>;
+}
+
+export function OnboardingChecklistPage({employeeId,user,csrf,onAuthExpired}) {
+  const [state,setState]=useState({loading:true});
+  const [retry,setRetry]=useState(0);
+  const [starting,setStarting]=useState(false);
+  const [message,setMessage]=useState('');
+  useEffect(()=>{
+    const controller=new AbortController();setState({loading:true});
+    api(`/api/employees/${employeeId}/onboarding`,{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setState({data});}).catch(error=>{if(!controller.signal.aborted){if(error.status===401)onAuthExpired();setState({error:error.message});}});
+    return ()=>controller.abort();
+  },[employeeId,retry]);
+  async function start() {
+    setStarting(true);setMessage('');
+    try {
+      const data=await api(`/api/employees/${employeeId}/onboarding`,{method:'POST',csrf});
+      setState(previous=>({data:{...previous.data,...data,employee:{...previous.data.employee,...data.employee}}}));
+    } catch(error) { if(error.status===401)onAuthExpired();setMessage(error.message); }
+    finally { setStarting(false); }
+  }
+  if(state.loading)return <p role="status">Loading onboarding checklist…</p>;
+  if(state.error)return <div><p role="alert">{state.error}</p><button onClick={()=>setRetry(retry+1)}>Retry onboarding checklist</button></div>;
+  const {data}=state;
+  return <section aria-labelledby="onboarding-checklist-heading">
+    <p><a href={user.role==='IT'?'#/employees':`#/employees/${employeeId}`}>{user.role==='IT'?'Back to onboarding overview':'Back to employee details'}</a></p>
+    <h2 id="onboarding-checklist-heading">Onboarding checklist</h2>
+    <h3>{data.employee.full_name} ({data.employee.employee_number})</h3>
+    <p>Start date: {data.employee.start_date} · Employee status: {data.employee.lifecycle_status}</p>
+    {data.workflow ? <><p>Workflow status: {data.workflow.status}</p><TaskChecklist tasks={data.tasks} userRole={user.role} csrf={csrf} onError={error=>{if(error.status===401)onAuthExpired();}} onApproval={result=>setState(previous=>({data:{...previous.data,workflow:result.workflow,employee:result.employee ? {...previous.data.employee,...result.employee} : previous.data.employee}}))}/></> : <><p>No onboarding checklist has been started.</p>{user.role==='HR' && data.employee.lifecycle_status==='Onboarding' && <button disabled={starting} onClick={start}>{starting?'Starting…':'Start onboarding'}</button>}</>}
+    {message && <p role="alert">{message}</p>}
+  </section>;
+}
+
+export function OnboardingChecklistList({onAuthExpired}) {
+  const [state,setState]=useState({loading:true});
+  const [retry,setRetry]=useState(0);
+  useEffect(()=>{
+    const controller=new AbortController();setState({loading:true});
+    api('/api/onboarding-checklists',{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setState({checklists:data.checklists});}).catch(error=>{if(!controller.signal.aborted){if(error.status===401)onAuthExpired();setState({error:error.message});}});
+    return ()=>controller.abort();
+  },[retry]);
+  if(state.loading)return <p role="status">Loading onboarding checklists…</p>;
+  if(state.error)return <div><p role="alert">{state.error}</p><button onClick={()=>setRetry(retry+1)}>Retry onboarding checklists</button></div>;
+  return <section aria-labelledby="onboarding-checklists-heading"><h3 id="onboarding-checklists-heading">Onboarding checklists</h3>
+    {!state.checklists.length ? <p>No onboarding checklists are available in your authorised scope.</p> : state.checklists.map(({employee,workflow,tasks})=><article key={workflow.id}><h4>{employee.full_name} ({employee.employee_number})</h4><p>Start date: {employee.start_date} · Workflow status: {workflow.status}</p><p>{tasks.filter(task=>task.status==='Completed').length} of {tasks.length} steps approved</p><a className="button" href={`#/onboarding/${employee.id}`}>View checklist and approve steps</a></article>)}
+  </section>;
+  //return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Position / job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>}<p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
 }
 
 function Field({name,label,error,...inputProps}) {

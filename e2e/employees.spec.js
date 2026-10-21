@@ -40,6 +40,20 @@ test('HR creates/edits an employee, navigates details and retains data after ref
   await page.reload();await expect(page.locator('dd').filter({hasText:/^Senior Analyst$/})).toBeVisible();
   await page.screenshot({path:test.info().outputPath('employee-details.png'),fullPage:true});
 });
+test('onboarding checklist has a dedicated page with the expanded default steps',async({page})=>{
+  await login(page);
+  await page.getByRole('link',{name:'View Sample Employee',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Sample Employee',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Onboarding checklist',exact:true})).toHaveCount(0);
+  await page.getByRole('link',{name:'View onboarding checklist',exact:true}).click();
+  await expect(page.getByRole('link',{name:'Back to employee details',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Start onboarding',exact:true}).click();
+  await expect(page.getByRole('listitem')).toHaveCount(11);
+  await expect(page.getByText('Send welcome email',{exact:false})).toBeVisible();
+  const hrStep=page.getByRole('listitem').filter({hasText:'Send welcome email'});
+  await hrStep.getByRole('button',{name:'Approve step',exact:true}).click();
+  await expect(hrStep).toContainText('Completed');
+});
 test('duplicate validation preserves form values and attaches field feedback',async({page})=>{
   await login(page);await page.getByRole('link',{name:'Add employee',exact:true}).click();
   await fillEmployee(page,'DEMO-001','Retain This Name');
