@@ -2,7 +2,7 @@
 SWE40006 team project: employee onboarding/offboarding with a three-tier web application and demonstrated DevOps pipeline.
 
 ## Current scope
-ELA-7 bootstrap, ELA-8/9 foundations and ELA-2 employee management: React/Vite frontend, Express API, local PostgreSQL, migrations/seeds, session login, HR employee create/edit, paginated lists and scoped detail views. Workflow generation/completion, image packaging and AWS delivery remain later tickets.
+ELA-7 bootstrap, ELA-8/9 foundations and ELA-2 employee management: React/Vite frontend, Express API, local PostgreSQL, migrations/seeds, session login, HR employee create/edit, paginated lists and scoped detail views. HR can start onboarding to generate an 11-step checklist from the applicable template. Checklists have a dedicated page and are visible to HR, the assigned manager and IT within their authorised scope; HR and IT can approve steps assigned to their role. When all onboarding tasks are approved, the workflow completes and the employee status changes to Active. Image packaging and AWS delivery remain later tickets.
 
 ## Architecture
 React browser UI → Express REST API → PostgreSQL. Frontend does not connect directly to the database.
@@ -47,7 +47,7 @@ After installing updated dependencies with `npm ci` and starting the existing Po
 2. Add `SEED_PASSWORD=` followed by your own local-only demo-login password of 12–128 characters to backend/.env. This differs from PGPASSWORD, which authenticates the API to PostgreSQL. Do not commit or share either password.
 3. Run `npm run db:migrate` then `npm run db:seed`. Rerunning both is safe; seed reruns preserve existing user passwords. Changing SEED_PASSWORD after the first seed does not reset existing accounts.
 4. Restart the backend and frontend using the existing dev commands. Sign in as `hr@example.test`, `it@example.test` or `manager@example.test` with the password chosen in step 2.
-5. Verify HR sees Sample Employee; Manager sees only their assigned employee; IT sees only their assigned tasks. Logout and refresh must show the login form. Templates exist but generated workflow tasks are implemented later.
+5. Verify HR sees Sample Employee; Manager sees only their assigned employee; IT sees its assigned tasks and onboarding checklists containing IT-assigned work. HR can start onboarding from an employee detail view. The generated checklist is available on its own page and includes 11 steps; HR and IT approve their assigned steps. Logout and refresh must show the login form.
 6. Run lint, tests and build. Capture migration/seed outputs, masked login screens, role views and verification results. Do not capture passwords or cookies.
 
 Database tables/constraints and recovery notes: database/ARCHITECTURE.md. Permission matrix, session/CSRF behaviour and the unimplemented MFA boundary: backend/AUTHENTICATION.md.
@@ -56,7 +56,6 @@ Automated foundations tests use PGlite's embedded PostgreSQL engine, exercising 
 
 ## Employee management (ELA-2)
 
-HR can choose Add employee, fill the form and save. New records start in Onboarding. Open View/Edit to change employee details; refresh to verify persistence. Employee number stays fixed; lifecycle status changes only through future workflow actions. Managers can read only their assigned employees; IT retains its task-only view. See backend/EMPLOYEE_API.md for fields, API contracts and manual verification.
+HR can choose Add employee, fill the form and save. New records start in Onboarding. Open View/Edit to change employee details; refresh to verify persistence. Employee number stays fixed; onboarding completion changes lifecycle status to Active. Managers can read only their assigned employees; IT retains its task-only view. See backend/EMPLOYEE_API.md for fields, API contracts and manual verification.
 
 Run `npx playwright install chromium` once, then `npm run test:e2e` for isolated browser create/edit, validation, pagination, permission, error and keyboard tests. These use synthetic embedded PostgreSQL data on ports 3101/5175 and do not touch your Docker data. Browser reports/test outputs are gitignored. Development Vite now fails clearly if its selected port is occupied, rather than silently choosing a different Origin and breaking login.
-
