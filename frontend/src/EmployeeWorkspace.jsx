@@ -57,6 +57,28 @@ function EmployeeDetail({id,edit,user,csrf,onSaved,onError}) {
     return ()=>controller.abort();
   },[id,retry]);
 
+  useEffect(() => {
+  if (state.employee?.lifecycle_status !== 'Offboarding') return;
+
+  const controller = new AbortController();
+
+  api(`/api/employees/${id}/offboarding`, {
+    signal: controller.signal
+  })
+    .then(data => {
+      if (!controller.signal.aborted) {
+        setOffboarding(data);
+      }
+    })
+    .catch(error => {
+      if (!controller.signal.aborted) {
+        setOffboardingError(error.message);
+      }
+    });
+
+  return () => controller.abort();
+}, [id, state.employee?.lifecycle_status]);
+
   async function startEmployeeOffboarding(event) {
   event.preventDefault();
   setOffboardingLoading(true);
