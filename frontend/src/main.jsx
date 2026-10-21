@@ -61,7 +61,7 @@ function App() {
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   }
-  return <main><p>SWE40006 · Deployment pipeline demo</p><h1>Employee Lifecycle Management</h1><p role="status">{ready}</p>
+  return <main><p>SWE40006 · Deployment pipeline demo v1</p><h1>Employee Lifecycle Management</h1><p role="status">{ready}</p>
     {message && <p role="alert">{message}</p>}
     {!user ? <form onSubmit={login}><h2>Sign in</h2><label htmlFor="email">Email</label><input id="email" type="email" autoComplete="username" required value={email} onChange={event=>setEmail(event.target.value)}/><label htmlFor="password">Password</label><input id="password" type="password" autoComplete="current-password" required maxLength={128} value={password} onChange={event=>setPassword(event.target.value)}/><button disabled={busy}>{busy ? 'Please wait…':'Sign in'}</button></form> : <section><h2>{user.displayName}</h2><p>Role: {user.role}</p><button disabled={busy} onClick={logout}>Sign out</button>
       {onboardingEmployeeId ? <OnboardingChecklistPage key={onboardingEmployeeId} employeeId={onboardingEmployeeId} user={user} csrf={csrf} onAuthExpired={expired}/> : user.role !== 'IT' && <EmployeeWorkspace user={user} csrf={csrf} onAuthExpired={expired}/>}
