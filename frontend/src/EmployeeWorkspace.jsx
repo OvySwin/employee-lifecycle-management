@@ -45,16 +45,135 @@ function EmployeeList({page,onError}) {
 function EmployeeDetail({id,edit,user,csrf,onSaved,onError}) {
   const [state,setState]=useState({loading:true});
   const [retry,setRetry]=useState(0);
+
+  const [offboarding,setOffboarding]=useState(null);
+  const [offboardingEndDate,setOffboardingEndDate]=useState('');
+  const [offboardingError,setOffboardingError]=useState('');
+  const [offboardingLoading,setOffboardingLoading]=useState(false);
+
   useEffect(()=>{
     const controller=new AbortController();setState({loading:true});
     api(`/api/employees/${id}`,{signal:controller.signal}).then(data=>{if(!controller.signal.aborted)setState({employee:data.employee});}).catch(error=>{if(!controller.signal.aborted){onError(error);setState({error:error.message});}});
     return ()=>controller.abort();
   },[id,retry]);
+
+  useEffect(() => {
+  if (state.employee?.lifecycle_status !== 'Offboarding') return;
+
+  const controller = new AbortController();
+
+  api(`/api/employees/${id}/offboarding`, {
+    signal: controller.signal
+  })
+    .then(data => {
+      if (!controller.signal.aborted) {
+        setOffboarding(data);
+      }
+    })
+    .catch(error => {
+      if (!controller.signal.aborted) {
+        setOffboardingError(error.message);
+      }
+    });
+
+  return () => controller.abort();
+}, [id, state.employee?.lifecycle_status]);
+
+  async function startEmployeeOffboarding(event) {
+  event.preventDefault();
+  setOffboardingLoading(true);
+  setOffboardingError('');
+
+  try {
+    const data = await api(`/api/employees/${id}/offboarding`, {
+      method: 'POST',
+      body: { end_date: offboardingEndDate },
+      csrf
+    });
+
+    setOffboarding(data);
+  } catch (error) {
+    setOffboardingError(error.fields?.end_date || error.message);
+  } finally {
+    setOffboardingLoading(false);
+  }
+}
+
   if(state.loading)return <p role="status">Loading employee…</p>;
   if(state.error)return <div><p role="alert">{state.error}</p><button onClick={()=>setRetry(retry+1)}>Retry employee details</button></div>;
   if(edit)return user.role==='HR' ? <EmployeeForm employee={state.employee} csrf={csrf} onSaved={onSaved} onError={onError}/> : <p role="alert">Only HR can edit employees.</p>;
   const employee=state.employee;
-  return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>} <a className="button" href={`#/onboarding/${employee.id}`}>View onboarding checklist</a><p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
+  return (
+  <article>
+    <h3>{employee.full_name}</h3>
+
+    <dl>
+      {[
+        ['Employee number', employee.employee_number],
+        ['Job title', employee.job_title],
+        ['Department', employee.department],
+        ['Location', employee.location],
+        ['Start date', employee.start_date],
+        ['End date', employee.end_date || 'Not set'],
+        ['Lifecycle status', employee.lifecycle_status],
+        ['Manager', employee.manager_name || 'Unassigned']
+      ].map(([label, value]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>{value}</dd>
+        </div>
+      ))}
+    </dl>
+
+    {user.role === 'HR' && (
+      <a className="button" href={`#/employees/${employee.id}/edit`}>
+        Edit employee
+      </a>
+    )}
+
+    <a className="button" href={`#/onboarding/${employee.id}`}>
+      View onboarding checklist
+    </a>
+
+    {user.role === 'HR' && employee.lifecycle_status === 'Active' && (
+      <form onSubmit={startEmployeeOffboarding}>
+        <h4>Start offboarding</h4>
+
+        <label htmlFor="offboarding-end-date">End date</label>
+        <input
+          id="offboarding-end-date"
+          type="date"
+          value={offboardingEndDate}
+          min={employee.start_date}
+          onChange={(event) => setOffboardingEndDate(event.target.value)}
+          required
+        />
+
+        {offboardingError && <p role="alert">{offboardingError}</p>}
+
+        <button type="submit" disabled={offboardingLoading}>
+          {offboardingLoading ? 'Starting...' : 'Start offboarding'}
+        </button>
+      </form>
+    )}
+
+    {offboarding && (
+      <div>
+        <h4>Offboarding checklist</h4>
+        <p>Status: {offboarding.employee.lifecycle_status}</p>
+        <ul>
+          {offboarding.tasks.map((task) => (
+            <li key={task.id}>
+              {task.title} — {task.status}
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+
+    <p>Lifecycle status changes through onboarding/offboarding workflows.</p>
+  </article>
+);
 }
 
 function TaskChecklist({tasks,userRole,csrf,onError,onApproval}) {

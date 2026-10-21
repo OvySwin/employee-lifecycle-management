@@ -115,3 +115,32 @@ test('keyboard users can reach labelled form fields',async({page})=>{
   await page.keyboard.press('Tab');await expect(page.getByLabel('Full name',{exact:true})).toBeFocused();
   await page.keyboard.press('Tab');await expect(page.getByLabel('Position / job title',{exact:true})).toBeFocused();
 });
+test('full offboarding browser journey works and persists after reload', async ({ page }) => {
+  await login(page);
+
+  await page.getByRole('link', {
+    name: 'View Active Offboarding Employee',
+    exact: true
+  }).click();
+
+  await expect(
+    page.getByRole('heading', {
+      name: 'Active Offboarding Employee',
+      exact: true
+    })
+  ).toBeVisible();
+
+  await page.getByLabel('End date', { exact: true }).fill('2026-10-31');
+
+  await page.getByRole('button', {
+    name: 'Start offboarding',
+    exact: true
+  }).click();
+
+  await expect(page.getByText('Offboarding checklist')).toBeVisible();
+  await expect(page.getByText('Status: Offboarding')).toBeVisible();
+
+  await page.reload();
+
+  await expect(page.getByText('Status: Offboarding')).toBeVisible();
+});
