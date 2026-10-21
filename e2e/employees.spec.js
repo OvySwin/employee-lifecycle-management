@@ -18,7 +18,7 @@ async function login(page,email='hr@example.test') {
 async function fillEmployee(page,number,name='Browser Employee') {
   await page.getByLabel('Employee number',{exact:true}).fill(number);
   await page.getByLabel('Full name',{exact:true}).fill(name);
-  await page.getByLabel('Job title',{exact:true}).fill('Business Analyst');
+  await page.getByLabel('Position / job title',{exact:true}).fill('Business Analyst');
   await page.getByLabel('Department',{exact:true}).fill('Consulting');
   await page.getByLabel('Location',{exact:true}).fill('Melbourne');
   await page.getByLabel('Start date',{exact:true}).fill('2026-10-19');
@@ -33,7 +33,7 @@ test('HR creates/edits an employee, navigates details and retains data after ref
   await page.reload();
   await expect(page.getByRole('heading',{name:'Browser Employee',exact:true})).toBeVisible();
   await page.getByRole('link',{name:'Edit employee',exact:true}).click();
-  await page.getByLabel('Job title',{exact:true}).fill('Senior Analyst');
+  await page.getByLabel('Position / job title',{exact:true}).fill('Senior Analyst');
   await expect(page.getByLabel('Employee number',{exact:true})).toHaveAttribute('readonly','');
   await page.getByRole('button',{name:'Save employee',exact:true}).click();
   await expect(page.locator('dd').filter({hasText:/^Senior Analyst$/})).toBeVisible();
@@ -113,5 +113,5 @@ test('keyboard users can reach labelled form fields',async({page})=>{
   await login(page);await page.getByRole('link',{name:'Add employee',exact:true}).click();
   await page.getByLabel('Employee number',{exact:true}).focus();
   await page.keyboard.press('Tab');await expect(page.getByLabel('Full name',{exact:true})).toBeFocused();
-  await page.keyboard.press('Tab');await expect(page.getByLabel('Job title',{exact:true})).toBeFocused();
+  await page.keyboard.press('Tab');await expect(page.getByLabel('Position / job title',{exact:true})).toBeFocused();
 });

@@ -1,6 +1,7 @@
 name: ELM CI
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 permissions:
@@ -41,6 +42,8 @@ jobs:
         run: echo "ELM_CI_START=$(date +%s)" >> "$GITHUB_ENV"
       - run: npm ci
       - run: npm run lint
+      - name: Validate deployment script syntax
+        run: bash -n scripts/deploy-release.sh
       - run: npm run test:coverage -- --maxWorkers=1
       - run: npm run build
       - name: Install browser
@@ -50,7 +53,8 @@ jobs:
       - name: Build application images
         run: |
           docker build -f backend/Dockerfile -t elm-api:${{ github.sha }} .
-          docker build -f frontend/Dockerfile -t elm-web:${{ github.sha }} .
+          docker build --build-arg RELEASE_SHA=${{ github.sha }} -f frontend/Dockerfile -t elm-web:${{ github.sha }} .
+          docker build -f deployment/acceptance/Dockerfile -t elm-acceptance:${{ github.sha }} .
       - name: Configure disposable container stack
         run: |
           cat > deployment/app.env <<CONFIG
@@ -68,12 +72,22 @@ jobs:
           echo POSTGRES_DB=elm_container_ci >> "$GITHUB_ENV"
       - name: Verify packaged application
         run: bash scripts/container-smoke.sh
+      - name: Deployed browser tests against packaged stack
+        env:
+          TEST_PASSWORD: CI-packaged-test-only-2026
+        run: |
+          docker compose --env-file deployment/app.env -f deployment/compose.app.yaml run --rm -T -e SEED_PASSWORD="$TEST_PASSWORD" migrate node backend/src/db-cli.js seed
+          mkdir -p evidence/ci/deployed-report evidence/ci/deployed-results
+          docker run --rm --network host --ipc=host -e TEST_PASSWORD -e DEPLOYED_BASE_URL=http://localhost:8080 -e ALLOW_SYNTHETIC_WRITES=test-only -e EXPECTED_RELEASE_SHA=${{ github.sha }} -v "$PWD/evidence/ci/deployed-report:/app/playwright-report/deployed" -v "$PWD/evidence/ci/deployed-results:/app/test-results/deployed" elm-acceptance:${{ github.sha }}
       - name: Export tested images and identifiers
         run: |
           docker image inspect elm-api:${{ github.sha }} elm-web:${{ github.sha }} --format '{{.RepoTags}} {{.Id}}' > evidence/ci/image-ids.txt
           docker save elm-api:${{ github.sha }} elm-web:${{ github.sha }} | gzip > evidence/ci/images.tar.gz
           sha256sum evidence/ci/images.tar.gz > evidence/ci/images.sha256
           echo '${{ github.sha }}' > evidence/ci/source-commit.txt
+          docker save elm-acceptance:${{ github.sha }} | gzip > evidence/ci/acceptance.tar.gz
+          cp deployment/compose.app.yaml evidence/ci/compose.app.yaml
+          node scripts/release-manifest.mjs
       - name: Record duration
         if: always()
         run: |
@@ -103,3 +117,35 @@ jobs:
           if test -f deployment/app.env; then
             docker compose --env-file deployment/app.env -f deployment/compose.app.yaml down -v
           fi
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified release bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: elm-ci-${{ github.sha }}-${{ github.run_attempt }}
+          path: verified
+      - name: Publish exact tested images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          manifest=$(find verified -name manifest.json -type f)
+          test -n "$manifest"
+          folder=$(dirname "$manifest")
+          tag="ci-$RELEASE_SHA"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release tag already exists; refusing to overwrite it."
+            exit 1
+          fi
+          gh release create "$tag" --target "$RELEASE_SHA" --draft --title "Verified ELM $RELEASE_SHA" --notes "CI-verified images. Review the manifest and promote this exact release through Test, Staging and Production."
+          gh release upload "$tag" "$folder/manifest.json" "$folder/images.tar.gz" "$folder/acceptance.tar.gz" "$folder/compose.app.yaml"
+          gh release edit "$tag" --draft=false --latest=false

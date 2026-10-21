@@ -12,19 +12,23 @@ test('deployed health/readiness and unauthenticated access',async({request})=>{
   const ready=await request.get('/ready');
   expect(ready.status()).toBe(200);expect((await ready.json()).database).toBe('connected');
   expect((await request.get('/api/employees')).status()).toBe(401);
+  if(process.env.EXPECTED_RELEASE_SHA){
+    const release=await request.get('/release.json');expect(release.status()).toBe(200);
+    expect((await release.json()).commit).toBe(process.env.EXPECTED_RELEASE_SHA);
+  }
 });
 test('HR creates, edits, refreshes and logs back into persisted data',async({page})=>{
   const number='DEPLOY-'+randomUUID().slice(0,8).toUpperCase(),name='Synthetic '+number;
   await login(page);
   await page.getByRole('link',{name:'Add employee',exact:true}).click();
-  for(const [label,value] of [['Employee number',number],['Full name',name],['Job title','Test Analyst'],['Department','Testing'],['Location','Sydney'],['Start date','2026-10-17']])
+  for(const [label,value] of [['Employee number',number],['Full name',name],['Position / job title','Test Analyst'],['Department','Testing'],['Location','Sydney'],['Start date','2026-10-17']])
     await page.getByLabel(label,{exact:true}).fill(value);
   await page.getByRole('button',{name:'Save employee',exact:true}).click();
   await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
   const detailURL=page.url();
   await page.reload();await expect(page.getByRole('heading',{name,exact:true})).toBeVisible();
   await page.getByRole('link',{name:'Edit employee',exact:true}).click();
-  await page.getByLabel('Job title',{exact:true}).fill('Senior Test Analyst');
+  await page.getByLabel('Position / job title',{exact:true}).fill('Senior Test Analyst');
   const savedResponse=page.waitForResponse(response=>response.request().method()==='PATCH' && new URL(response.url()).pathname.startsWith('/api/employees/'));
   await page.getByRole('button',{name:'Save employee',exact:true}).click();
   expect((await savedResponse).status()).toBe(200);

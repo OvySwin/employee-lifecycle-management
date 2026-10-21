@@ -1,0 +1,50 @@
+name: ELM AWS connection check
+on:
+  push:
+    branches: [feature/ELA-44-ssm-connection]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check-test-server:
+    if: github.repository == 'OvySwin/employee-lifecycle-management' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/ELA-44-ssm-connection')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 7
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ap-southeast-2
+      AWS_PAGER: ''
+      AWS_CLI_CONNECT_TIMEOUT: '10'
+      AWS_CLI_READ_TIMEOUT: '30'
+    steps:
+      - name: Check Test through AWS Systems Manager
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$AWS_ACCESS_KEY_ID" && test -n "$AWS_SECRET_ACCESS_KEY" || { echo "AWS repository secrets are missing."; exit 1; }
+          cat > /tmp/elm-check.json <<'JSON'
+          {"commands":["set -eu","hostname","curl --fail --silent --show-error --max-time 15 http://localhost:8080/ready"],"executionTimeout":["60"]}
+          JSON
+          command_id=$(aws ssm send-command --instance-ids i-0cfc581325319f50a --document-name AWS-RunShellScript --parameters file:///tmp/elm-check.json --timeout-seconds 120 --comment "ELM read-only Test connection check" --query Command.CommandId --output text)
+          echo "SSM command: $command_id"
+          for attempt in $(seq 1 60); do
+            if aws ssm get-command-invocation --command-id "$command_id" --instance-id i-0cfc581325319f50a --output json > /tmp/elm-result.json 2>/tmp/elm-error.txt; then
+              status=$(jq -r .Status /tmp/elm-result.json)
+              case "$status" in
+                Success)
+                  jq -r '.StandardOutputContent' /tmp/elm-result.json
+                  echo "GitHub Actions reached ELM-Test successfully." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                  ;;
+                Pending|InProgress|Delayed) ;;
+                *) jq '{Status,ResponseCode,StandardOutputContent,StandardErrorContent}' /tmp/elm-result.json; exit 1 ;;
+              esac
+            elif ! grep -q InvocationDoesNotExist /tmp/elm-error.txt; then
+              cat /tmp/elm-error.txt >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "Timed out waiting for Test. Check that the instance is running and Online in Systems Manager."
+          exit 1

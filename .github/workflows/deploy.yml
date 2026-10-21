@@ -1,0 +1,120 @@
+name: ELM Deploy
+on:
+  workflow_run:
+    workflows: [ELM CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_sha:
+        description: Full SHA already deployed successfully to Test and Staging
+        required: true
+        type: string
+      approve_production:
+        description: Approve deployment of this verified release to Production
+        required: true
+        default: false
+        type: boolean
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: elm-environment-promotions
+  cancel-in-progress: false
+jobs:
+  release:
+    if: >-
+      github.repository == 'OvySwin/employee-lifecycle-management' &&
+      ((github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.head_repository.full_name == github.repository) ||
+       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' &&
+        inputs.approve_production == true))
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - name: Validate successful main CI and published release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || inputs.release_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid release SHA"; exit 1; }
+          gh api "repos/$GH_REPO/actions/runs?head_sha=$SOURCE_SHA&event=push&status=success&per_page=100" > /tmp/elm-runs.json
+          jq -e '.workflow_runs | any(.name == "ELM CI" and .head_branch == "main" and .conclusion == "success")' /tmp/elm-runs.json
+          gh api "repos/$GH_REPO/releases/tags/ci-$SOURCE_SHA" > /tmp/elm-release.json
+          jq -e '.draft == false and .prerelease == false' /tmp/elm-release.json
+          echo "sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+  test:
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ap-southeast-2
+      AWS_PAGER: ''
+      RELEASE_SHA: ${{ needs.release.outputs.sha }}
+      MODE: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Deploy Test and run browser acceptance, or verify previous Test gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = workflow_dispatch ]; then
+            python3 scripts/ssm-deploy.py test "$RELEASE_SHA" --verify-only
+          else
+            python3 scripts/ssm-deploy.py test "$RELEASE_SHA"
+          fi
+  staging:
+    needs: [release, test]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ap-southeast-2
+      AWS_PAGER: ''
+      RELEASE_SHA: ${{ needs.release.outputs.sha }}
+      MODE: ${{ github.event_name }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+      - name: Deploy Staging or verify previous Staging gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$MODE" = workflow_dispatch ]; then
+            python3 scripts/ssm-deploy.py staging "$RELEASE_SHA" --verify-only
+          else
+            python3 scripts/ssm-deploy.py staging "$RELEASE_SHA"
+          fi
+  production:
+    if: github.event_name == 'workflow_dispatch' && inputs.approve_production == true
+    needs: [release, test, staging]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ap-southeast-2
+      AWS_PAGER: ''
+      RELEASE_SHA: ${{ needs.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Deploy approved Production release and verify HTTPS
+        run: python3 scripts/ssm-deploy.py production "$RELEASE_SHA"
