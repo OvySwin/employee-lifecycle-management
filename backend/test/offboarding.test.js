@@ -122,9 +122,9 @@ describe('offboarding access control',()=>{
   it('denies IT and Manager initiation without changes',async()=>{
     const before=await stored();for(const role of ['IT','Manager'])expect((await start(undefined,role)).status).toBe(403);expect(await stored()).toEqual(before);
   });
-  it('scopes Manager reads and denies IT reads',async()=>{
+  it('scopes Manager reads and permits IT when its assigned tasks are present',async()=>{
     expect((await read()).status).toBe(404);await start();
-    expect((await read('Manager')).status).toBe(200);expect((await read('IT')).status).toBe(403);
+    expect((await read('Manager')).status).toBe(200);expect((await read('IT')).status).toBe(200);
     await db.query('UPDATE employees SET manager_user_id=NULL WHERE id=$1',[employee]);expect((await read('Manager')).status).toBe(404);
     expect((await request(app).get(path())).status).toBe(401);
   });

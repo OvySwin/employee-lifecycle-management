@@ -54,7 +54,7 @@ function EmployeeDetail({id,edit,user,csrf,onSaved,onError}) {
   if(state.error)return <div><p role="alert">{state.error}</p><button onClick={()=>setRetry(retry+1)}>Retry employee details</button></div>;
   if(edit)return user.role==='HR' ? <EmployeeForm employee={state.employee} csrf={csrf} onSaved={onSaved} onError={onError}/> : <p role="alert">Only HR can edit employees.</p>;
   const employee=state.employee;
-  return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>} <a className="button" href={`#/onboarding/${employee.id}`}>View onboarding checklist</a><p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
+  return <article><h3>{employee.full_name}</h3><dl>{[['Employee number',employee.employee_number],['Job title',employee.job_title],['Department',employee.department],['Location',employee.location],['Start date',employee.start_date],['End date',employee.end_date || 'Not set'],['Lifecycle status',employee.lifecycle_status],['Manager',employee.manager_name || 'Unassigned']].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{user.role==='HR' && <a className="button" href={`#/employees/${employee.id}/edit`}>Edit employee</a>} <a className="button" href={`#/onboarding/${employee.id}`}>View onboarding checklist</a> <a className="button" href={`#/offboarding/${employee.id}`}>View offboarding</a><p>Lifecycle status changes through onboarding/offboarding workflows.</p></article>;
 }
 
 function TaskChecklist({tasks,userRole,csrf,onError,onApproval}) {
@@ -160,4 +160,89 @@ function EmployeeForm({employee,csrf,onSaved,onError}) {
       <button type="submit" disabled={saving || managerState.loading || Boolean(managerState.error)}>{saving?'Saving…':'Save employee'}</button>
     </fieldset><a href={employee?`#/employees/${employee.id}`:'#/employees'}>Cancel</a>
   </form>;
+}
+
+export function OffboardingChecklistPage({employeeId,user,csrf,onAuthExpired}) {
+  const [state,setState]=useState({loading:true}),[refresh,setRefresh]=useState(0);
+  const [date,setDate]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
+  useEffect(()=>{
+    const controller=new AbortController();
+    Promise.all([
+      api(`/api/employees/${employeeId}/offboarding`,{signal:controller.signal})
+        .then(data=>({workflow:data})).catch(error=>error.status===404?{workflow:null}:Promise.reject(error)),
+      user.role==='IT'?Promise.resolve(null):api(`/api/employees/${employeeId}`,{signal:controller.signal})
+    ]).then(([a,b])=>{if(!controller.signal.aborted)setState({loading:false,data:a.workflow,employee:b?.employee});})
+      .catch(error=>{if(!controller.signal.aborted){if(error.status===401)onAuthExpired();setState({loading:false,error:error.message});}});
+    return ()=>controller.abort();
+  },[employeeId,refresh]);
+  async function start(event){
+    event.preventDefault();setBusy(true);setMessage('');
+    try{await api(`/api/employees/${employeeId}/offboarding`,{method:'POST',csrf,body:{end_date:date}});setRefresh(n=>n+1);}
+    catch(error){if(error.status===401)onAuthExpired();setMessage(error.fields?.end_date||error.message);}
+    finally{setBusy(false);}
+  }
+  async function approve(task){
+    setBusy(true);setMessage('');
+    try{await api(`/api/offboarding-tasks/${task.id}/approve`,{method:'POST',csrf});setRefresh(n=>n+1);}
+    catch(error){if(error.status===401)onAuthExpired();setMessage(error.message);}
+    finally{setBusy(false);}
+  }
+  if(state.loading)return <p role="status">Loading offboarding…</p>;
+  if(state.error)return <p role="alert">{state.error} <button onClick={()=>setRefresh(n=>n+1)}>Retry</button></p>;
+  return <section><h2>Offboarding checklist</h2>
+    <p><a href="#/employees">Back to employees</a></p>
+    {state.employee&&<h3>{state.employee.full_name} — {state.employee.lifecycle_status}</h3>}
+    {!state.data?<>
+      <p>No offboarding workflow has been started.</p>
+      {user.role==='HR'&&state.employee?.lifecycle_status==='Active'&&
+        <form onSubmit={start}><label htmlFor="offboard-date">Last employment date</label>
+          <input id="offboard-date" type="date" min={state.employee.start_date} required value={date} onChange={e=>setDate(e.target.value)}/>
+          <button disabled={busy}>Start offboarding</button></form>}
+    </>:<>
+      <p>Workflow: {state.data.workflow.status} · Employee: {state.data.employee.lifecycle_status}</p>
+      <ol>{state.data.tasks.map(task=><li key={task.id}>
+        {task.title} · {task.assigned_role} · {task.status}{task.due_date?` · Due ${task.due_date}`:''}
+        {task.required?' · Required':' · Optional'}
+        {state.data.workflow.status==='InProgress'&&task.status==='Pending'&&task.assigned_role===user.role&&
+          (!task.assignee_user_id||task.assignee_user_id===user.id)&&
+          <button disabled={busy} onClick={()=>approve(task)}>Complete step</button>}
+      </li>)}</ol>
+    </>}
+    {message&&<p role="alert">{message}</p>}
+  </section>;
+}
+
+export function ProgressDashboard({user,csrf,onAuthExpired}) {
+  const [state,setState]=useState({loading:true}),[retry,setRetry]=useState(0);
+  const [users,setUsers]=useState([]),[notice,setNotice]=useState('');
+  useEffect(()=>{
+    const controller=new AbortController();setState({loading:true});
+    Promise.all([api('/api/overview',{signal:controller.signal}),
+      user.role==='HR'?api('/api/team/users',{signal:controller.signal}):Promise.resolve({users:[]})])
+      .then(([overview,people])=>{if(!controller.signal.aborted){setState({loading:false,...overview});setUsers(people.users);}})
+      .catch(error=>{if(!controller.signal.aborted){if(error.status===401)onAuthExpired();setState({loading:false,error:error.message});}});
+    return ()=>controller.abort();
+  },[retry,user.role]);
+  async function assign(task,id){
+    setNotice('');
+    try{await api(`/api/workflow-tasks/${task.id}/assignee`,{method:'PATCH',csrf,body:{assignee_user_id:id||null}});
+      setNotice('Assignment saved.');setRetry(n=>n+1);}
+    catch(error){if(error.status===401)onAuthExpired();setNotice(error.message);}
+  }
+  if(state.loading)return <p role="status">Loading progress and schedule…</p>;
+  if(state.error)return <p role="alert">{state.error} <button onClick={()=>setRetry(n=>n+1)}>Retry</button></p>;
+  return <section><h2>Workflow progress</h2>
+    {state.limited&&<p role="alert">Only the first 500 visible tasks are included. Narrow the reporting scope before using this for a complete export.</p>}
+    {!state.workflows.length?<p>No workflows available in your role.</p>:<div className="table-scroll"><table>
+      <caption>Current lifecycle progress</caption><thead><tr><th>Employee</th><th>Kind</th><th>Status</th><th>Completed</th><th>Required remaining</th></tr></thead>
+      <tbody>{state.workflows.map(w=><tr key={w.id}><td>{w.employee_name}</td><td>{w.kind}</td><td>{w.status}</td><td>{w.completed}/{w.total}</td><td>{w.required_remaining}</td></tr>)}</tbody></table></div>}
+    <h3>Task schedule</h3>{notice&&<p role="status">{notice}</p>}
+    <div className="table-scroll"><table><caption>Due dates and owners</caption><thead><tr><th>Due</th><th>Employee</th><th>Task</th><th>State</th><th>Owner</th></tr></thead>
+    <tbody>{state.tasks.map(task=><tr key={task.id}><td>{task.due_date||'Unscheduled'}</td><td>{task.employee_name} <a href={`#/offboarding/${task.employee_id}`} aria-label={`View offboarding for ${task.employee_name}`}>Offboarding</a></td><td>{task.title}</td><td>{task.status}</td><td>
+    {user.role==='HR'&&task.status==='Pending'&&state.workflows.find(w=>w.id===task.workflow_id)?.status==='InProgress'?
+      <select aria-label={`Assign ${task.title}`} value={task.assignee_user_id||''} onChange={e=>assign(task,e.target.value)}>
+        <option value="">Role queue ({task.assigned_role})</option>
+        {users.filter(person=>person.role===task.assigned_role).map(person=><option key={person.id} value={person.id}>{person.display_name}</option>)}
+      </select> : task.assigned_role}</td></tr>)}</tbody></table></div>
+  </section>;
 }

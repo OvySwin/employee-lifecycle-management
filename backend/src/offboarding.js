@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { completeWorkflowTask } from './workflow-tasks.js';
 import { inTransaction, WorkflowError, selectTemplate, validDate, taskFields } from './workflow-start.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,7 +49,7 @@ export function offboardingRoutes(database) {
     }
   });
   router.get('/employees/:id/offboarding',async (req,res,next) => {
-    if (!['HR','Manager'].includes(req.user.role)) return res.status(403).json({error:'Permission denied'});
+    if (!['HR','Manager','IT'].includes(req.user.role)) return res.status(403).json({error:'Permission denied'});
     if (!uuid.test(req.params.id)) return res.status(400).json({error:'Invalid employee ID.'});
     try {
       const result = await inTransaction(database,async client => {
@@ -57,13 +58,21 @@ export function offboardingRoutes(database) {
         if (!employee) throw new WorkflowError(404,'Employee not found.');
         const workflow = (await client.query("SELECT id,employee_id,template_id,kind,status FROM workflows WHERE employee_id=$1 AND kind='Offboarding' ORDER BY created_at DESC,id DESC LIMIT 1",[employee.id])).rows[0];
         if (!workflow) throw new WorkflowError(404,'Offboarding workflow not found.');
-        return {employee,workflow,tasks:(await client.query(`SELECT ${taskFields} FROM workflow_tasks WHERE workflow_id=$1 ORDER BY position`,[workflow.id])).rows};
+        const tasks=(await client.query(`SELECT ${taskFields} FROM workflow_tasks WHERE workflow_id=$1 ORDER BY position`,[workflow.id])).rows;
+        if(req.user.role==='IT' && !tasks.some(task=>task.assigned_role==='IT' && (!task.assignee_user_id || task.assignee_user_id===req.user.id))) throw new WorkflowError(404,'Offboarding workflow not found.');
+        return {employee,workflow,tasks};
       });
       res.json(result);
     } catch(error) {
       if (error instanceof WorkflowError) return res.status(error.status).json({error:error.message});
       next(error);
     }
+  });
+  router.post('/offboarding-tasks/:id/approve',async(req,res,next)=>{
+    if(!['HR','IT','Manager'].includes(req.user.role)) return res.status(403).json({error:'Permission denied.'});
+    if(!uuid.test(req.params.id))return res.status(400).json({error:'Invalid task ID.'});
+    try { res.json(await completeWorkflowTask(database,req.params.id,'Offboarding',req.user)); }
+    catch(error){if(error instanceof WorkflowError)return res.status(error.status).json({error:error.message});next(error);}
   });
   return router;
 }
