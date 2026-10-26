@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { completeWorkflowTask } from './workflow-tasks.js';
 import { inTransaction, WorkflowError, selectTemplate, taskFields } from './workflow-start.js';
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -96,25 +97,7 @@ export function onboardingRoutes(database) {
     if (!['HR','IT'].includes(req.user.role)) return res.status(403).json({error:'Only HR or IT can approve onboarding tasks.'});
     if (!uuid.test(req.params.id)) return res.status(400).json({error:'Invalid task ID.'});
     try {
-      const result=await inTransaction(database,async client=>{
-        const current=(await client.query(`SELECT t.id,t.workflow_id,t.assigned_role,t.status,w.employee_id,w.status AS workflow_status
-          FROM workflow_tasks t JOIN workflows w ON w.id=t.workflow_id
-          WHERE t.id=$1 AND w.kind='Onboarding' FOR UPDATE OF w,t`,[req.params.id])).rows[0];
-        if (!current) throw new WorkflowError(404,'Onboarding task not found.');
-        if (current.assigned_role!==req.user.role) throw new WorkflowError(403,'This onboarding task is assigned to another role.');
-        if (current.workflow_status!=='InProgress') throw new WorkflowError(409,'This onboarding workflow is already complete.');
-        if (current.status!=='Pending') throw new WorkflowError(409,'This onboarding task has already been approved.');
-        const task=(await client.query(`UPDATE workflow_tasks SET status='Completed',completed_at=now(),completed_by=$1
-          WHERE id=$2 AND status='Pending' RETURNING ${taskFields}`,[req.user.id,req.params.id])).rows[0];
-        const pending=(await client.query("SELECT count(*)::int AS count FROM workflow_tasks WHERE workflow_id=$1 AND status='Pending'",[current.workflow_id])).rows[0].count;
-        let workflow=(await client.query('SELECT id,employee_id,template_id,kind,status FROM workflows WHERE id=$1',[current.workflow_id])).rows[0];
-        let employee;
-        if (pending===0) {
-          workflow=(await client.query("UPDATE workflows SET status='Completed',completed_at=now() WHERE id=$1 RETURNING id,employee_id,template_id,kind,status",[current.workflow_id])).rows[0];
-          employee=(await client.query("UPDATE employees SET lifecycle_status='Active' WHERE id=$1 RETURNING id,lifecycle_status",[current.employee_id])).rows[0];
-        }
-        return {task,workflow,employee};
-      });
+      const result=await completeWorkflowTask(database,req.params.id,'Onboarding',req.user);
       res.json(result);
     } catch(error) {
       if (error instanceof WorkflowError) return res.status(error.status).json({error:error.message});
