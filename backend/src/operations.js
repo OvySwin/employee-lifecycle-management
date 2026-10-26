@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { inTransaction, WorkflowError, taskFields } from './workflow-start.js';
-const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function operationsRoutes(database) {
   const router=Router();
   router.get('/overview',async(req,res,next)=>{
