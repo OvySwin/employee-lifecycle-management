@@ -1,4 +1,5 @@
 import { inTransaction, WorkflowError, taskFields } from './workflow-start.js';
+import { enqueueNotification } from './notifications.js';
 
 export async function completeWorkflowTask(database, taskId, kind, user) {
   return inTransaction(database, async client => {
@@ -37,6 +38,11 @@ export async function completeWorkflowTask(database, taskId, kind, user) {
       employee = (await client.query(`
         UPDATE employees SET lifecycle_status=$1 WHERE id=$2 RETURNING id,lifecycle_status
       `,[kind === 'Onboarding' ? 'Active' : 'Offboarded',row.employee_id])).rows[0];
+    }
+    if(employee){
+      const hrUsers=(await client.query("SELECT id FROM app_users WHERE enabled=true AND role='HR'")).rows;
+      for(const hr of hrUsers) await enqueueNotification(client,`workflow-complete:${workflow.id}:${hr.id}`,hr.id,
+        `${kind} workflow completed`,`All required ${kind.toLowerCase()} tasks have been completed for employee ${row.employee_id}.`);
     }
     return {task,workflow,employee};
   });
