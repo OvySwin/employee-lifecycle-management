@@ -53,6 +53,7 @@ describe('offboarding completion',()=>{
     expect((await request(app).get('/api/overview').set('Cookie',sessions.IT.cookie)).body.tasks.map(t=>t.id)).toContain(task.id);
     expect((await request(app).patch('/api/workflow-tasks/'+task.id+'/assignee').set(authenticated('IT')).send({assignee_user_id:sessions.IT.id})).status).toBe(403);
     expect((await request(app).patch('/api/workflow-tasks/'+task.id+'/assignee').set(authenticated('HR')).send({assignee_user_id:sessions.HR.id})).status).toBe(400);
-    expect((await request(app).patch('/api/workflow-tasks/'+task.id+'/assignee').set(authenticated('HR')).send({assignee_user_id:sessions.IT.id})).status).toBe(200);
+    const assignment=await request(app).patch('/api/workflow-tasks/'+task.id+'/assignee').set(authenticated('HR')).send({assignee_user_id:sessions.IT.id});
+    expect(assignment.status,JSON.stringify({response:assignment.body,user:sessions.IT.id,task:task.id})).toBe(200);
   });
 });
