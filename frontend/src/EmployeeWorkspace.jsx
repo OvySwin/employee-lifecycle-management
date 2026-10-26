@@ -246,3 +246,29 @@ export function ProgressDashboard({user,csrf,onAuthExpired}) {
       </select> : task.assigned_role}</td></tr>)}</tbody></table></div>
   </section>;
 }
+
+export function NotificationInbox({onAuthExpired}) {
+  const [state,setState]=useState({loading:true}),[retry,setRetry]=useState(0);
+  useEffect(()=>{
+    const controller=new AbortController();
+    api('/api/notifications',{signal:controller.signal}).then(data=>{
+      if(!controller.signal.aborted)setState({items:data.notifications});
+    }).catch(error=>{
+      if(!controller.signal.aborted){
+        if(error.status===401)onAuthExpired();
+        setState({error:error.message});
+      }
+    });
+    return ()=>controller.abort();
+  },[retry]);
+  if(state.loading)return <p role="status">Loading notifications…</p>;
+  return <section aria-labelledby="notifications-heading">
+    <div className="section-header"><h2 id="notifications-heading">Notifications</h2>
+      <button type="button" onClick={()=>{setState({loading:true});setRetry(n=>n+1);}}>Refresh</button></div>
+    {state.error?<p role="alert">{state.error}</p>:state.items.length===0?
+      <p>No notifications yet.</p>:<ol>{state.items.map(item=><li key={item.id}>
+        <strong>{item.subject}</strong> — {item.body}
+        <small> · {item.created_at?.slice(0,10)}</small>
+      </li>)}</ol>}
+  </section>;
+}
