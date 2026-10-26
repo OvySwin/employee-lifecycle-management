@@ -238,7 +238,7 @@ export function ProgressDashboard({user,csrf,onAuthExpired}) {
       <tbody>{state.workflows.map(w=><tr key={w.id}><td>{w.employee_name}</td><td>{w.kind}</td><td>{w.status}</td><td>{w.completed}/{w.total}</td><td>{w.required_remaining}</td></tr>)}</tbody></table></div>}
     <h3>Task schedule</h3>{notice&&<p role="status">{notice}</p>}
     <div className="table-scroll"><table><caption>Due dates and owners</caption><thead><tr><th>Due</th><th>Employee</th><th>Task</th><th>State</th><th>Owner</th></tr></thead>
-    <tbody>{state.tasks.map(task=><tr key={task.id}><td>{task.due_date||'Unscheduled'}</td><td>{task.employee_name}</td><td>{task.title}</td><td>{task.status}</td><td>
+    <tbody>{state.tasks.map(task=><tr key={task.id}><td>{task.due_date||'Unscheduled'}</td><td>{task.employee_name} <a href={`#/offboarding/${task.employee_id}`} aria-label={`View offboarding for ${task.employee_name}`}>Offboarding</a></td><td>{task.title}</td><td>{task.status}</td><td>
     {user.role==='HR'&&task.status==='Pending'&&state.workflows.find(w=>w.id===task.workflow_id)?.status==='InProgress'?
       <select aria-label={`Assign ${task.title}`} value={task.assignee_user_id||''} onChange={e=>assign(task,e.target.value)}>
         <option value="">Role queue ({task.assigned_role})</option>
