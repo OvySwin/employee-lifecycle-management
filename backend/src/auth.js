@@ -6,6 +6,7 @@ import { employeeRoutes } from './employees.js';
 import { onboardingRoutes } from './onboarding.js';
 import { offboardingRoutes } from './offboarding.js';
 import { operationsRoutes } from './operations.js';
+import { notificationRoutes } from './notifications.js';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const dummyPassword = hashPassword(randomBytes(32).toString('hex'));
 export function authRoutes(database, { origin = 'http://localhost:5173', secure = false, sessionHours = 8, limiter = true } = {}) {
@@ -62,6 +63,7 @@ export function authRoutes(database, { origin = 'http://localhost:5173', secure 
   router.use(onboardingRoutes(database));
   router.use(offboardingRoutes(database));
   router.use(operationsRoutes(database));
+  router.use(notificationRoutes(database));
   router.get('/tasks', async (req,res) => {
     const query = req.user.role === 'HR' ? ['SELECT id,title,status FROM workflow_tasks ORDER BY id LIMIT 100',[]] : ['SELECT id,title,status FROM workflow_tasks WHERE assignee_user_id=$1 AND assigned_role=$2 ORDER BY id LIMIT 100',[req.user.id,req.user.role]];
     res.json({ tasks: (await database.query(...query)).rows });

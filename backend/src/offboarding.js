@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { enqueueNotification } from './notifications.js';
 import { completeWorkflowTask } from './workflow-tasks.js';
 import { inTransaction, WorkflowError, selectTemplate, validDate, taskFields } from './workflow-start.js';
 
@@ -28,6 +29,10 @@ export async function startOffboarding(database, employeeId, endDate) {
       tasks.push(result.rows[0]);
     }
     await client.query("UPDATE employees SET end_date=$1,lifecycle_status='Offboarding' WHERE id=$2",[endDate,employeeId]);
+    const users=(await client.query("SELECT id,role FROM app_users WHERE enabled=true AND role IN ('HR','IT')")).rows;
+    for(const user of users) if(tasks.some(task=>task.assigned_role===user.role))
+      await enqueueNotification(client,`offboarding-start:${workflow.id}:${user.id}`,user.id,
+        'Offboarding checklist created',`An offboarding checklist is ready for employee ${employeeId}; final employment date ${endDate}. Open the application to review your role's tasks.`);
     return {employee:{id:employeeId,end_date:endDate,lifecycle_status:'Offboarding'},workflow,tasks};
   });
 }

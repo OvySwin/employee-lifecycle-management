@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { enqueueNotification } from './notifications.js';
 import { completeWorkflowTask } from './workflow-tasks.js';
 import { inTransaction, WorkflowError, selectTemplate, taskFields } from './workflow-start.js';
 
@@ -26,6 +27,10 @@ export async function startOnboarding(database, employeeId) {
       [workflow.id,task.id,task.title,task.required,task.assigned_role,employee.start_date,task.due_offset_days,task.position]);
       tasks.push(result.rows[0]);
     }
+    const users=(await client.query("SELECT id,role FROM app_users WHERE enabled=true AND role IN ('HR','IT')")).rows;
+    for(const user of users) if(tasks.some(task=>task.assigned_role===user.role))
+      await enqueueNotification(client,`onboarding-start:${workflow.id}:${user.id}`,user.id,
+        'Onboarding checklist created',`An onboarding checklist is ready for employee ${employeeId}. Open the application to review your role's tasks.`);
     return {employee:{id:employeeId,lifecycle_status:employee.lifecycle_status},workflow,tasks};
   });
 }

@@ -33,7 +33,7 @@ describe('database foundations (embedded PostgreSQL)',()=>{
   it('reruns migrations and seeds without duplicate data or password reset',async()=>{
     const before=(await db.query("SELECT password_hash FROM app_users WHERE role='HR'")).rows[0].password_hash;
     await migrate(db); await seed(db,'Different-local-password');
-    expect((await db.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count).toBe(1);
+    expect((await db.query('SELECT count(*)::int AS count FROM schema_migrations')).rows[0].count).toBe(2);
     expect((await db.query('SELECT count(*)::int AS count FROM app_users')).rows[0].count).toBe(3);
     expect((await db.query('SELECT count(*)::int AS count FROM template_tasks')).rows[0].count).toBe(14);
     expect((await db.query("SELECT title,assigned_role FROM template_tasks t JOIN checklist_templates c ON c.id=t.template_id WHERE c.kind='Onboarding' ORDER BY position")).rows).toEqual([
