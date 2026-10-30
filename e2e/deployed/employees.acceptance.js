@@ -50,6 +50,8 @@ test('Manager is read-only and IT is denied employee API access',async({page})=>
   const result=await page.request.get('/api/employees');
   expect(result.status()).toBe(200);
   await page.getByRole('button',{name:'Sign out',exact:true}).click();
+  // Logout is async; wait for its UI state before navigating to the next login.
+  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeVisible();
   await login(page,'it@example.test');
   await expect(page.getByRole('link',{name:'Add employee',exact:true})).toHaveCount(0);
   expect((await page.request.get('/api/employees')).status()).toBe(403);

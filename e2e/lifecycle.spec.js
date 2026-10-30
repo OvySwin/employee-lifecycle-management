@@ -11,6 +11,8 @@ async function signIn(page,email){
 }
 async function asRole(page,email){
   await page.getByRole('button',{name:'Sign out'}).click();
+  // The logout request must finish before signIn navigates to the app root.
+  await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeVisible();
   await signIn(page,email);
 }
 async function completeSteps(page,employeeId,kind,count){
