@@ -102,7 +102,14 @@ jobs:
             python3 scripts/ssm-deploy.py staging "$RELEASE_SHA"
           fi
   production:
-    if: github.event_name == 'workflow_dispatch' && inputs.approve_production == true
+    # Automatically promote successful main-branch releases only after both EC2 gates.
+    # Explicitly approved manual reruns remain available for controlled recovery.
+    if: >-
+      needs.release.result == 'success' &&
+      needs.test.result == 'success' &&
+      needs.staging.result == 'success' &&
+      (github.event_name == 'workflow_run' ||
+       (github.event_name == 'workflow_dispatch' && inputs.approve_production == true))
     needs: [release, test, staging]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -115,6 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
-      - name: Deploy approved Production release and verify HTTPS
+      - name: Deploy verified Production release and verify HTTPS
         run: python3 scripts/ssm-deploy.py production "$RELEASE_SHA"
